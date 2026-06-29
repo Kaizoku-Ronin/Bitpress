@@ -2,6 +2,8 @@
 
 **Turn any PDF into a tiny, searchable, 1-bit (CCITT G4) PDF — entirely in your browser.**
 
+**https://kaizoku-ronin.github.io/Bitpress/**
+
 Bitpress renders each page, thresholds it to pure black-and-white, encodes it with CCITT Group 4 (the fax codec), and optionally lays an invisible OCR text layer behind it so the result stays selectable and searchable. A 25 MB "Print to PDF" scan can drop to a couple of MB while coming out *sharper*.
 
 No install, no server, no upload. One HTML file.
