@@ -1,8 +1,6 @@
 # Bitpress
 
-**Turn any PDF into a tiny, searchable, 1-bit (CCITT G4) PDF — entirely in your browser.**
-
-**https://kaizoku-ronin.github.io/Bitpress/**
+**Turn any PDF into a tiny, searchable, 1-bit PDF — entirely in your browser.**
 
 Bitpress renders each page, thresholds it to pure black-and-white, encodes it with CCITT Group 4 (the fax codec), and optionally lays an invisible OCR text layer behind it so the result stays selectable and searchable. A 25 MB "Print to PDF" scan can drop to a couple of MB while coming out *sharper*.
 
@@ -18,9 +16,9 @@ For clean black-on-white documents — invoices, forms, shipping paperwork, scan
 
 ## Features
 
-- **True CCITT G4 encoding** — a from-scratch ITU-T T.6 encoder, validated pixel-perfect against two independent decoders (libtiff and poppler).
+- **Two 1-bit encodings** — `1-bit Flate` (default; renders correctly in every viewer) and a from-scratch ITU-T T.6 **CCITT G4** encoder (often smaller), validated pixel-perfect against three independent decoders (libtiff, poppler, pdfium).
 - **Searchable output** — optional OCR (Tesseract) builds an invisible text layer aligned to the image, so you can select and search the text.
-- **1-bit Flate fallback** — one click to a guaranteed-valid 1-bit `FlateDecode` PDF if you ever want it.
+- **Self-checks the output** — flags a page if the threshold drops the text, and re-opens the finished PDF to confirm it's well-formed before you download.
 - **Resolution, threshold, and language controls** — 150–400 dpi, Otsu auto-threshold or manual, English/Italian/German/French/Spanish (and combos).
 - **100% client-side** — your file never leaves the machine. Good for confidential documents.
 - **Single file, no build step** — just `bitpress.html`.
@@ -36,7 +34,7 @@ Or host it: commit `bitpress.html` to a GitHub repo, enable **Settings → Pages
 | Control | What it does |
 | --- | --- |
 | **Resolution** | Rasterization dpi. 300 is a good default for dense tables; 150–200 for lighter docs or smaller files. |
-| **Image encoding** | `CCITT G4` (default, smallest) or `1-bit Flate` (always-valid fallback). |
+| **Image encoding** | `1-bit Flate` (default) renders in every viewer. `CCITT G4` is often smaller, but some Chrome/Edge/Drive builds render it blank — use it only when you know your viewer (Acrobat, poppler) handles it. |
 | **Threshold** | `Auto (Otsu)` for clean black-on-white; `Manual` for faint or uneven scans. |
 | **OCR text layer** | `On` adds searchable text (slower — a few seconds per page). `Off` is a pure image-only shrink. Pick the language(s) to match the document. |
 

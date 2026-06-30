@@ -84,7 +84,7 @@
 <div class="wrap">
   <header>
     <h1><span class="b">1&#8203;0</span> Bitpress</h1>
-    <div class="tag">PDF &rarr; thresholded 1-bit &rarr; CCITT&nbsp;G4 + searchable OCR layer. Runs entirely in your browser; nothing is uploaded.</div>
+    <div class="tag">PDF &rarr; thresholded 1-bit &rarr; compact searchable PDF. Your file never leaves this device; only the processing libraries load from public CDNs (or self-host them).</div>
   </header>
 
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose or drop a PDF">
@@ -108,9 +108,12 @@
       </div>
 
       <label>Image encoding</label>
-      <div class="seg" id="enc" data-val="g4">
-        <button data-v="g4" aria-pressed="true">CCITT G4</button>
-        <button data-v="flate">1-bit Flate</button>
+      <div>
+        <div class="seg" id="enc" data-val="flate">
+          <button data-v="flate" aria-pressed="true">1-bit Flate &middot; compatible</button>
+          <button data-v="g4">CCITT G4 &middot; smallest</button>
+        </div>
+        <div class="note" id="encNote" style="margin-top:5px">Flate displays in every viewer. CCITT G4 is often smaller, but some Chrome/Edge/Drive builds render it blank.</div>
       </div>
 
       <label>Threshold</label>
@@ -142,7 +145,10 @@
     <div class="note" style="padding:0 14px 13px">OCR makes the text searchable but adds time (a few seconds per page); turn it off for a pure image-only shrink.</div>
   </div>
 
-  <button class="run" id="run" disabled>Compress PDF</button>
+  <div class="note" style="border:2px solid var(--line);border-bottom:none;background:var(--panel);padding:10px 14px;margin-top:14px">
+    <b>Keep your original.</b> This makes a flattened submission copy — it rasterizes pages and drops original vector text, annotations, metadata, and any digital-signature integrity. Best for black-on-white invoices, forms, tables, and scans; not for photos, color labels, or stamps where gray detail matters.
+  </div>
+  <button class="run" id="run" disabled style="margin-top:0">Compress PDF</button>
 
   <div class="meter" id="meter">
     <div class="bar"><div class="fill" id="fill"></div></div>
@@ -207,6 +213,7 @@ drop.addEventListener('drop',e=>setFile(e.dataTransfer.files[0]));
 
 /* ---------- helpers ---------- */
 function fmtBytes(n){ if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(0)+' KB'; return (n/1048576).toFixed(2)+' MB'; }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function log(msg,cls){ const t=new Date().toLocaleTimeString(); logEl.innerHTML+=`<span class="${cls||''}">${t}  ${msg}</span>\n`; logEl.scrollTop=logEl.scrollHeight; }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('Failed to load '+src)); document.head.appendChild(s); }); }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -272,14 +279,15 @@ function otsu(gray){ // gray: Uint8 luminance
     if(between>max){max=between;thr=t;} }
   return thr;
 }
-// returns {rows:[Uint8Array per row, 1=ink], thr}
+// returns {rows:[Uint8Array per row, 1=ink], thr, inkFrac, grayDarkFrac}
 function toBilevel(imgData,W,H,mode,manualThr){
   const d=imgData.data, gray=new Uint8Array(W*H);
   for(let i=0,p=0;i<gray.length;i++,p+=4) gray[i]=(d[p]*77+d[p+1]*150+d[p+2]*29)>>8;
   const thr = mode==='manual'?manualThr:otsu(gray);
-  const rows=new Array(H);
-  for(let y=0;y<H;y++){ const r=new Uint8Array(W), off=y*W; for(let x=0;x<W;x++) r[x]=gray[off+x]<thr?1:0; rows[y]=r; }
-  return {rows,thr};
+  const rows=new Array(H); let ink=0, grayDark=0;
+  for(let i=0;i<gray.length;i++) if(gray[i]<200) grayDark++;
+  for(let y=0;y<H;y++){ const r=new Uint8Array(W), off=y*W; for(let x=0;x<W;x++){ const v=gray[off+x]<thr?1:0; r[x]=v; ink+=v; } rows[y]=r; }
+  return {rows,thr,inkFrac:ink/(W*H),grayDarkFrac:grayDark/(W*H)};
 }
 // pack 1bpp for Flate path: white=1, black=0, rows byte-padded
 function packFlate(rows,W,H){
@@ -310,7 +318,7 @@ function buildPDF(pages){
     // image xobject
     objStart(m.img);
     let dict;
-    if(enc==='g4') dict='<< /Type /XObject /Subtype /Image /Width '+W+' /Height '+H+' /BitsPerComponent 1 /ColorSpace /DeviceGray /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns '+W+' /Rows '+H+' >> /Length '+data.length+' >>';
+    if(enc==='g4') dict='<< /Type /XObject /Subtype /Image /Width '+W+' /Height '+H+' /BitsPerComponent 1 /ColorSpace /DeviceGray /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns '+W+' /Rows '+H+' /BlackIs1 false /EncodedByteAlign false >> /Length '+data.length+' >>';
     else           dict='<< /Type /XObject /Subtype /Image /Width '+W+' /Height '+H+' /BitsPerComponent 1 /ColorSpace /DeviceGray /Filter /FlateDecode /Length '+data.length+' >>';
     push(m.img+' 0 obj\n'+dict+'\nstream\n'); push(data); push('\nendstream\nendobj\n');
     // content
@@ -318,9 +326,10 @@ function buildPDF(pages){
     if(words&&words.length){
       const k=72/m.p.DPI;
       for(const w of words){
-        const t=(w.text||'').trim(); if(!t) continue;
+        const t=(w.text||'').trim(); if(!t || !w.bbox) continue;
         const x0=w.bbox.x0*k, x1=w.bbox.x1*k, y0=w.bbox.y0*k, y1=w.bbox.y1*k;
-        let size=(y1-y0); if(size<2)size=2;
+        if(![x0,x1,y0,y1].every(Number.isFinite) || x1<=x0 || y1<=y0) continue; // skip degenerate/NaN boxes
+        let size=(y1-y0); if(size<2)size=2; if(size>200)size=200;
         const approx=Math.max(t.length*size*0.5,0.5), tz=Math.max(10,Math.min(400,(x1-x0)/approx*100));
         cs+='BT /F0 '+size.toFixed(2)+' Tf 3 Tr '+tz.toFixed(0)+' Tz '+x0.toFixed(2)+' '+(Hpt-y1).toFixed(2)+' Td ('+pdfEscape(t)+') Tj ET\n';
       }
@@ -344,13 +353,13 @@ function buildPDF(pages){
 }
 
 /* ---------- orchestration ---------- */
-let pdfjsReady=false, pakoReady=false, tessReady=false, tessLib=null;
+let pdfjsReady=false, pakoReady=false, tessReady=false, tessLib=null, outputUrl=null;
 async function ensureLibs(needOCR,needFlate){
   if(!pdfjsReady){ await loadScript(CDN.pdfjs); window.pdfjsLib.GlobalWorkerOptions.workerSrc=CDN.pdfjsWorker; pdfjsReady=true; }
-  if(!pakoReady){ try{ await loadScript(CDN.pako); pakoReady=true; }catch(e){ log('Flate library unavailable — '+e.message,'err'); if(needFlate) throw e; } }
+  if(!pakoReady){ try{ await loadScript(CDN.pako); pakoReady=true; }catch(e){ log('Flate library unavailable — '+esc(e.message),'err'); if(needFlate) throw e; } }
   if(needOCR && !tessReady){
     try{ await loadScript(CDN.tesseract); tessLib=window.Tesseract; tessReady=true; }
-    catch(e){ log('OCR engine failed to load; continuing without a text layer. '+e.message,'err'); }
+    catch(e){ log('OCR engine failed to load; continuing without a text layer. '+esc(e.message),'err'); }
   }
 }
 
@@ -363,7 +372,7 @@ runBtn.addEventListener('click',async()=>{
   const t0=performance.now();
   try{
     log('Loading engine…');
-    await ensureLibs(wantOCR, true);
+    await ensureLibs(wantOCR, enc==='flate');
     if(wantOCR && !tessReady) wantOCR=false;
 
     const doc=await pdfjsLib.getDocument({data:pdfBytes.slice()}).promise;
@@ -387,13 +396,16 @@ runBtn.addEventListener('click',async()=>{
 
       let words=null;
       if(wantOCR && worker){ try{ const {data}=await worker.recognize(cv); words=data.words||[]; }
-        catch(e){ log('OCR failed on page '+i+' (kept image). '+e.message,'err'); } }
+        catch(e){ log('OCR failed on page '+i+' (kept image). '+esc(e.message),'err'); } }
 
       const img=cx.getImageData(0,0,W,H);
-      const {rows,thr}=toBilevel(img,W,H,thMode,manualThr);
+      const {rows,thr,inkFrac,grayDarkFrac}=toBilevel(img,W,H,thMode,manualThr);
+      if(grayDarkFrac>0.005 && inkFrac<0.0005)
+        log('page '+i+': threshold may have dropped the text (page near-blank). Try Manual threshold.','err');
       let data, pageEnc=enc;
       if(enc==='g4'){ try{ data=encodeG4(rows,W,H); }
-        catch(e){ log('G4 encode fell back to Flate on page '+i+'. '+e.message,'err'); data=window.pako.deflate(packFlate(rows,W,H)); pageEnc='flate'; } }
+        catch(e){ if(!window.pako) throw new Error('G4 failed on page '+i+' and Flate fallback is unavailable');
+          log('G4 encode fell back to Flate on page '+i+'. '+esc(e.message),'err'); data=window.pako.deflate(packFlate(rows,W,H)); pageEnc='flate'; } }
       else data=window.pako.deflate(packFlate(rows,W,H));
 
       pages.push({W,H,Wpt:W*72/DPI,Hpt:H*72/DPI,DPI,data,words,enc:pageEnc});
@@ -406,16 +418,23 @@ runBtn.addEventListener('click',async()=>{
     log('Assembling PDF…');
     const out=buildPDF(pages);
 
+    // integrity gate: reopen the generated bytes before offering download
+    try{ const v=await pdfjsLib.getDocument({data:out.slice()}).promise;
+      if(v.numPages===total) log('Verified: output reopened cleanly ('+v.numPages+' pages).');
+      else log('Warning: output reopened with '+v.numPages+'/'+total+' pages.','err');
+    }catch(e){ log('Warning: generated PDF failed to reopen — '+esc(e.message),'err'); }
+
+    if(outputUrl) URL.revokeObjectURL(outputUrl);
     const blob=new Blob([out],{type:'application/pdf'});
-    const url=URL.createObjectURL(blob);
-    dl.href=url; dl.download=pdfFileName.replace(/\.pdf$/i,'')+'_1bit'+(enc==='g4'?'_g4':'')+(wantOCR?'_ocr':'')+'.pdf';
+    outputUrl=URL.createObjectURL(blob);
+    dl.href=outputUrl; dl.download=pdfFileName.replace(/\.pdf$/i,'')+'_1bit'+(enc==='g4'?'_g4':'_flate')+(wantOCR?'_ocr':'')+'.pdf';
     dl.style.display='block';
     const pct=Math.max(0,Math.round((1-out.length/pdfBytes.length)*100));
     $('#sOut').textContent=fmtBytes(out.length); $('#sPct').textContent=pct+'% smaller';
     $('#sPct').className='v'+(pct>0?' amber':'');
     log('<b>Done</b> in '+((performance.now()-t0)/1000).toFixed(1)+'s · '+fmtBytes(pdfBytes.length)+' → '+fmtBytes(out.length));
   }catch(e){
-    log('Stopped: '+e.message,'err'); $('#sOut').textContent='—'; $('#sPct').textContent='—';
+    log('Stopped: '+esc(e.message),'err'); $('#sOut').textContent='—'; $('#sPct').textContent='—';
   }finally{ runBtn.disabled=false; }
 });
 </script>
